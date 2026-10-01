@@ -352,6 +352,8 @@
   .scale-table tbody tr:last-child td{border-bottom:none;}
   .scale-table tbody tr:hover td{background:var(--surface-2);}
   .scale-table .key-cell{font-family:var(--font-display); font-weight:700;}
+  .scale-table .jump-cell{cursor:pointer; transition:color 0.12s ease;}
+  .scale-table .jump-cell:hover{color:var(--accent-strong); text-decoration:underline;}
   .scale-table .sig-cell{color:var(--ink-dim); font-family:var(--font-mono); font-size:0.8rem;}
   .scale-table .notes-cell{font-family:var(--font-mono); letter-spacing:0.03em;}
   .scale-table .notes-cell .tonic{color:var(--root-note); font-weight:700;}
@@ -441,7 +443,7 @@
     <!-- SCALES PANEL -->
     <section id="panel-scales" class="panel" aria-labelledby="scales-h">
       <h1 id="scales-h">Every scale, every key</h1>
-      <p class="intro">All twelve major keys at a glance, each paired with the relative natural minor that shares its key signature. Press ▶ to hear any scale.</p>
+      <p class="intro">All twelve major keys at a glance, each paired with the relative natural minor that shares its key signature. Click a key name to see it on the fretboard, or press ▶ to hear it.</p>
 
       <div class="card">
         <div class="table-scroll">
@@ -1435,10 +1437,24 @@
   });
 
   /* ================= SCALES panel ================= */
+  // Jumps to the Keys tab with the given key selected and the major/minor
+  // toggle set accordingly, so a row in the Scales table can act as a
+  // shortcut into that key's interactive circle-of-fifths + fretboard view
+  // instead of duplicating that view here.
+  function jumpToKeysView(keyIdx, type){
+    document.querySelector('[data-tab="keys"]').click();
+    scaleType = type;
+    document.querySelectorAll('[data-scaletype]').forEach(function(b){
+      b.classList.toggle('active', b.dataset.scaletype === type);
+    });
+    selectKey(keyIdx);
+    document.getElementById('keyDetailCard').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
   function buildScalesTable(){
     var tbody = document.getElementById('scaleTableBody');
     tbody.innerHTML = '';
-    KEY_DATA.forEach(function(key){
+    KEY_DATA.forEach(function(key, keyIdx){
       var preferFlat = key.type === 'flat';
       var majorPcs = MAJOR_STEPS.map(function(s){ return mod12(key.pc + s); });
       var minorTonicPc = mod12(key.pc - 3);
@@ -1457,8 +1473,10 @@
       var tr = document.createElement('tr');
 
       var tdKey = document.createElement('td');
-      tdKey.className = 'key-cell';
+      tdKey.className = 'key-cell jump-cell';
       tdKey.textContent = key.name.replace('#','♯') + ' major';
+      tdKey.title = 'View ' + key.name.replace('#','♯') + ' major on the Keys tab';
+      tdKey.addEventListener('click', function(){ jumpToKeysView(keyIdx, 'major'); });
       tr.appendChild(tdKey);
 
       var tdSig = document.createElement('td');
@@ -1472,7 +1490,10 @@
       tr.appendChild(tdMajor);
 
       var tdRel = document.createElement('td');
+      tdRel.className = 'jump-cell';
       tdRel.textContent = key.relMinor.replace('#','♯') + ' minor';
+      tdRel.title = 'View ' + key.relMinor.replace('#','♯') + ' minor on the Keys tab';
+      tdRel.addEventListener('click', function(){ jumpToKeysView(keyIdx, 'minor'); });
       tr.appendChild(tdRel);
 
       var tdMinor = document.createElement('td');
