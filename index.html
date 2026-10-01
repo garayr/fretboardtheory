@@ -2280,22 +2280,32 @@
 
   function buildKeysQuestion(){
     var answerKey = pick(KEY_DATA);
+    var isMinor = Math.random() < 0.5;
     var variant = pick(['sigToName', 'nameToSig', 'selectNotes']);
     var visual = document.getElementById('quizVisual');
     visual.innerHTML = '';
     var playBtn = document.getElementById('quizPlayBtn');
     playBtn.hidden = true;
 
+    // A key signature is shared by a major key and its relative natural minor,
+    // so every question kind below is asked about whichever one isMinor picks —
+    // same signature/distractor logic either way, just a different tonic,
+    // step pattern, and display name.
+    var qualityWord = isMinor ? 'minor' : 'major';
+    var tonicPc = isMinor ? mod12(answerKey.pc - 3) : answerKey.pc;
+    var steps = isMinor ? MINOR_STEPS : MAJOR_STEPS;
+    var keyLabel = (isMinor ? answerKey.relMinor : answerKey.name).replace('#','♯') + ' ' + qualityWord;
+
     if (variant === 'selectNotes'){
       var preferFlatSel = answerKey.type === 'flat';
-      var correctPcs = MAJOR_STEPS.map(function(s){ return mod12(answerKey.pc + s); });
+      var correctPcs = steps.map(function(s){ return mod12(tonicPc + s); });
       document.getElementById('quizLead').textContent = 'Select all the notes';
-      document.getElementById('quizHeadline').textContent = 'Which notes are in the key of ' + answerKey.name.replace('#','♯') + ' major?';
+      document.getElementById('quizHeadline').textContent = 'Which notes are in the key of ' + keyLabel + '?';
       return {
         type: 'selectNotes',
         correctPcs: correctPcs,
         preferFlat: preferFlatSel,
-        prompt: answerKey.name.replace('#','♯') + ' major scale notes'
+        prompt: keyLabel + ' scale notes'
       };
     }
 
@@ -2306,19 +2316,22 @@
       var sigText = answerKey.acc.length === 0 ? 'No sharps or flats' :
         (sharps ? sharps + ' sharp' + (sharps===1?'':'s') : flats + ' flat' + (flats===1?'':'s')) +
         ': ' + answerKey.acc.map(prettyAcc).join(', ');
-      document.getElementById('quizHeadline').textContent = sigText;
+      document.getElementById('quizHeadline').textContent = sigText + (isMinor ? ' — which minor key is this?' : '');
       var choices = shuffle([answerKey].concat(shuffle(KEY_DATA.filter(function(k){return k!==answerKey;})).slice(0,3)));
       return {
         prompt: sigText,
-        choices: choices.map(function(k){ return {label: k.name.replace('#','♯') + ' major', correct: k === answerKey}; })
+        choices: choices.map(function(k){
+          var label = isMinor ? k.relMinor.replace('#','♯') + ' minor' : k.name.replace('#','♯') + ' major';
+          return {label: label, correct: k === answerKey};
+        })
       };
     } else {
-      document.getElementById('quizLead').textContent = 'Major key';
-      document.getElementById('quizHeadline').textContent = answerKey.name.replace('#','♯') + ' major — which key signature belongs to it?';
+      document.getElementById('quizLead').textContent = isMinor ? 'Minor key' : 'Major key';
+      document.getElementById('quizHeadline').textContent = keyLabel + ' — which key signature belongs to it?';
       var distractors = shuffle(KEY_DATA.filter(function(k){return k!==answerKey;})).slice(0,3);
       var options = shuffle([answerKey].concat(distractors));
       return {
-        prompt: answerKey.name + ' major',
+        prompt: keyLabel,
         choices: options.map(function(k){
           var s = k.type === 'sharp' ? k.count : 0, fl = k.type === 'flat' ? k.count : 0;
           var text = k.acc.length === 0 ? 'No sharps or flats' :
