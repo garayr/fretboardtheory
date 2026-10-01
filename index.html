@@ -283,6 +283,10 @@
   .pitch-btn:hover{border-color:var(--accent);}
   .pitch-btn.active{background:var(--root-note); color:var(--root-ink); border-color:var(--root-note);}
   .pitch-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  .pitch-btn.correct{background:var(--good); color:var(--good-ink); border-color:var(--good);}
+  .pitch-btn.incorrect{background:var(--bad); color:var(--bad-ink); border-color:var(--bad);}
+  .pitch-btn.missed{background:var(--surface-2); color:var(--ink); border:2px dashed var(--good);}
+  .pitch-btn:disabled{cursor:default;}
   .interval-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(76px,1fr)); gap:8px;}
   .interval-btn{
     appearance:none; border:1px solid var(--line); background:var(--surface-2);
@@ -726,7 +730,7 @@
     <!-- QUIZ PANEL -->
     <section id="panel-quiz" class="panel" aria-labelledby="quiz-h">
       <h1 id="quiz-h">Practice quiz</h1>
-      <p class="intro">Quick multiple-choice drills. Your streak and best score are kept on this device.</p>
+      <p class="intro">Quick practice drills. Your streak and best score are kept on this device.</p>
 
       <div class="quiz-top">
         <div class="mode-toggle" role="group" aria-label="Quiz topic">
@@ -761,9 +765,11 @@
           <div id="quizVisual"></div>
         </div>
         <div class="answers" id="quizAnswers"></div>
+        <div class="pitch-grid section-gap" id="quizNoteGrid" hidden></div>
         <p class="feedback" id="quizFeedback" aria-live="polite"></p>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button class="btn secondary" id="quizPlayBtn" type="button" hidden>▶ Play notes</button>
+          <button class="btn" id="quizCheckBtn" type="button" hidden>Check answer</button>
           <button class="btn" id="quizNextBtn" type="button">Next question →</button>
           <button class="btn secondary" id="speedRoundBtn" type="button" hidden>⏱ 60s Speed Round</button>
         </div>
@@ -2274,13 +2280,26 @@
 
   function buildKeysQuestion(){
     var answerKey = pick(KEY_DATA);
-    var askSignatureToName = Math.random() < 0.5;
+    var variant = pick(['sigToName', 'nameToSig', 'selectNotes']);
     var visual = document.getElementById('quizVisual');
     visual.innerHTML = '';
     var playBtn = document.getElementById('quizPlayBtn');
     playBtn.hidden = true;
 
-    if (askSignatureToName){
+    if (variant === 'selectNotes'){
+      var preferFlatSel = answerKey.type === 'flat';
+      var correctPcs = MAJOR_STEPS.map(function(s){ return mod12(answerKey.pc + s); });
+      document.getElementById('quizLead').textContent = 'Select all the notes';
+      document.getElementById('quizHeadline').textContent = 'Which notes are in the key of ' + answerKey.name.replace('#','♯') + ' major?';
+      return {
+        type: 'selectNotes',
+        correctPcs: correctPcs,
+        preferFlat: preferFlatSel,
+        prompt: answerKey.name.replace('#','♯') + ' major scale notes'
+      };
+    }
+
+    if (variant === 'sigToName'){
       document.getElementById('quizLead').textContent = 'Key signature';
       var sharps = answerKey.type === 'sharp' ? answerKey.count : 0;
       var flats = answerKey.type === 'flat' ? answerKey.count : 0;
@@ -2584,14 +2603,90 @@
     var q = QUIZ_BUILDERS[effectiveMode]();
     quizState.current = q;
     var answersEl = document.getElementById('quizAnswers');
+    var noteGridEl = document.getElementById('quizNoteGrid');
+    var checkBtn = document.getElementById('quizCheckBtn');
     answersEl.innerHTML = '';
-    q.choices.forEach(function(choice){
-      var b = document.createElement('button');
-      b.type = 'button'; b.className = 'answer-btn'; b.textContent = choice.label;
-      b.addEventListener('click', function(){ answerQuestion(choice, b); });
-      answersEl.appendChild(b);
-    });
+    noteGridEl.innerHTML = '';
+
+    if (q.type === 'selectNotes'){
+      answersEl.hidden = true;
+      noteGridEl.hidden = false;
+      checkBtn.hidden = false;
+      for (var pcN = 0; pcN < 12; pcN++){
+        (function(pcVal){
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'pitch-btn';
+          b.textContent = noteName(pcVal, q.preferFlat).replace('#','♯').replace('b','♭');
+          b.addEventListener('click', function(){ b.classList.toggle('active'); });
+          noteGridEl.appendChild(b);
+        })(pcN);
+      }
+    } else {
+      answersEl.hidden = false;
+      noteGridEl.hidden = true;
+      checkBtn.hidden = true;
+      q.choices.forEach(function(choice){
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'answer-btn'; b.textContent = choice.label;
+        b.addEventListener('click', function(){ answerQuestion(choice, b); });
+        answersEl.appendChild(b);
+      });
+    }
   }
+
+  // Grades a "select all the notes in this key" question: correct only when the
+  // exact set of 7 scale notes is ticked (no missing, no extras). Each note
+  // button is then marked correct (ticked and right), missed (right but not
+  // ticked), or incorrect (ticked but wrong) so the feedback teaches the shape
+  // of the scale, not just pass/fail.
+  function answerSelectNotesQuestion(){
+    var q = quizState.current;
+    if (!q || q.type !== 'selectNotes') return;
+    var noteGridEl = document.getElementById('quizNoteGrid');
+    var buttons = Array.prototype.slice.call(noteGridEl.children);
+    var selectedPcs = [];
+    buttons.forEach(function(b, pc){ if (b.classList.contains('active')) selectedPcs.push(pc); });
+    var correctSorted = q.correctPcs.slice().sort(function(a,b){ return a-b; });
+    var selectedSorted = selectedPcs.slice().sort(function(a,b){ return a-b; });
+    var isCorrect = correctSorted.length === selectedSorted.length &&
+      correctSorted.every(function(v, i){ return v === selectedSorted[i]; });
+
+    buttons.forEach(function(b, pc){
+      var isCorrectNote = q.correctPcs.indexOf(pc) !== -1;
+      var wasSelected = b.classList.contains('active');
+      b.classList.remove('active');
+      b.disabled = true;
+      if (isCorrectNote && wasSelected) b.classList.add('correct');
+      else if (isCorrectNote && !wasSelected) b.classList.add('missed');
+      else if (!isCorrectNote && wasSelected) b.classList.add('incorrect');
+    });
+
+    quizState.total++;
+    var topic = quizState.lastTopic;
+    if (topic && quizState.topicStats[topic]) quizState.topicStats[topic].total++;
+    var fb = document.getElementById('quizFeedback');
+    if (isCorrect){
+      quizState.correct++; quizState.streak++;
+      if (topic && quizState.topicStats[topic]) quizState.topicStats[topic].correct++;
+      if (quizState.streak > quizState.best){
+        quizState.best = quizState.streak;
+        try { localStorage.setItem('ft_best', String(quizState.best)); } catch(e){}
+      }
+      fb.textContent = 'Correct!';
+      fb.className = 'feedback good';
+      pluck(72, 0, {gain:0.35}); pluck(76, 0.12, {gain:0.3});
+    } else {
+      quizState.streak = 0;
+      fb.textContent = 'Not quite — correct notes highlighted, missed ones outlined.';
+      fb.className = 'feedback bad';
+      pluck(53, 0, {gain:0.3});
+    }
+    document.getElementById('quizCheckBtn').hidden = true;
+    saveTopicStats();
+    updateStatsUI();
+  }
+
+  document.getElementById('quizCheckBtn').addEventListener('click', answerSelectNotesQuestion);
 
   function answerQuestion(choice, btnEl){
     var answersEl = document.getElementById('quizAnswers');
