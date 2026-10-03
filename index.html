@@ -1025,6 +1025,12 @@
     var acc = diff > 0 ? new Array(diff + 1).join('#') : (diff < 0 ? new Array(-diff + 1).join('b') : '');
     return targetLetter + acc;
   }
+  // Spell a full 7-note scale (major or natural minor) so each of the 7
+  // letters is used exactly once, e.g. D# minor -> D# E# F# G# A# B C#
+  // instead of the chromatic lookup's D# F F# G# A# B C#.
+  function spellScaleNotes(tonicSpelling, steps){
+    return steps.map(function(s, i){ return spellIntervalNote(tonicSpelling, s, i); });
+  }
 
   /* ================= Audio: plucked-string synth ================= */
   var audioCtx = null;
@@ -1392,11 +1398,11 @@
     var key = KEY_DATA[selectedKeyIdx];
     var preferFlat = key.type === 'flat';
     if (scaleType === 'major'){
-      return {tonicPc: key.pc, steps: MAJOR_STEPS, preferFlat: preferFlat, label: key.name.replace('#','♯').replace('b','♭') + ' major'};
+      return {tonicPc: key.pc, steps: MAJOR_STEPS, preferFlat: preferFlat, tonicSpelling: key.name, label: key.name.replace('#','♯').replace('b','♭') + ' major'};
     }
     // relative minor shares the same key signature / pitch classes, tonic is a minor 3rd below
     var minorPc = mod12(key.pc - 3);
-    return {tonicPc: minorPc, steps: MINOR_STEPS, preferFlat: preferFlat, label: noteName(minorPc, preferFlat) + ' minor'};
+    return {tonicPc: minorPc, steps: MINOR_STEPS, preferFlat: preferFlat, tonicSpelling: key.relMinor, label: noteName(minorPc, preferFlat) + ' minor'};
   }
 
   function renderKeyDetail(){
@@ -1420,7 +1426,8 @@
     }
     document.getElementById('relMinor').textContent = key.relMinor.replace('#','♯') + ' minor';
     var scalePcs = info.steps.map(function(s){ return mod12(info.tonicPc + s); });
-    document.getElementById('scaleNotes').textContent = scalePcs.map(function(pc){ return noteName(pc, info.preferFlat); }).join(' ');
+    var scaleSpelled = spellScaleNotes(info.tonicSpelling, info.steps);
+    document.getElementById('scaleNotes').textContent = scaleSpelled.map(prettyAcc).join(' ');
     var scaleFormula = scaleType === 'major' ? MAJOR_FORMULA : MINOR_FORMULA;
 
     renderMarkers(fbKeys, function(stringIdx, fret){
@@ -1461,17 +1468,15 @@
     var tbody = document.getElementById('scaleTableBody');
     tbody.innerHTML = '';
     KEY_DATA.forEach(function(key, keyIdx){
-      var preferFlat = key.type === 'flat';
-      var majorPcs = MAJOR_STEPS.map(function(s){ return mod12(key.pc + s); });
-      var minorTonicPc = mod12(key.pc - 3);
-      var minorPcs = MINOR_STEPS.map(function(s){ return mod12(minorTonicPc + s); });
+      var majorNotes = spellScaleNotes(key.name, MAJOR_STEPS);
+      var minorNotes = spellScaleNotes(key.relMinor, MINOR_STEPS);
       var sharps = key.type === 'sharp' ? key.count : 0;
       var flats = key.type === 'flat' ? key.count : 0;
       var sigText = key.acc.length === 0 ? 'No accidentals' : (sharps ? sharps + ' sharp' + (sharps===1?'':'s') : flats + ' flat' + (flats===1?'':'s'));
 
-      function notesHtml(pcs){
-        return pcs.map(function(pc, i){
-          var label = noteName(pc, preferFlat).replace('#','♯').replace('b','♭');
+      function notesHtml(notes){
+        return notes.map(function(n, i){
+          var label = prettyAcc(n);
           return i === 0 ? '<span class="tonic">' + label + '</span>' : label;
         }).join(' ');
       }
@@ -1492,7 +1497,7 @@
 
       var tdMajor = document.createElement('td');
       tdMajor.className = 'notes-cell';
-      tdMajor.innerHTML = notesHtml(majorPcs);
+      tdMajor.innerHTML = notesHtml(majorNotes);
       tr.appendChild(tdMajor);
 
       var tdRel = document.createElement('td');
@@ -1504,7 +1509,7 @@
 
       var tdMinor = document.createElement('td');
       tdMinor.className = 'notes-cell';
-      tdMinor.innerHTML = notesHtml(minorPcs);
+      tdMinor.innerHTML = notesHtml(minorNotes);
       tr.appendChild(tdMinor);
 
       var tdPlay = document.createElement('td');
@@ -2281,7 +2286,7 @@
   function buildKeysQuestion(){
     var answerKey = pick(KEY_DATA);
     var isMinor = Math.random() < 0.5;
-    var variant = pick(['sigToName', 'nameToSig', 'selectNotes']);
+    var variant = pick(['sigToName', 'nameToSig', 'selectNotes', 'relative']);
     var visual = document.getElementById('quizVisual');
     visual.innerHTML = '';
     var playBtn = document.getElementById('quizPlayBtn');
@@ -2294,18 +2299,41 @@
     var qualityWord = isMinor ? 'minor' : 'major';
     var tonicPc = isMinor ? mod12(answerKey.pc - 3) : answerKey.pc;
     var steps = isMinor ? MINOR_STEPS : MAJOR_STEPS;
-    var keyLabel = (isMinor ? answerKey.relMinor : answerKey.name).replace('#','♯') + ' ' + qualityWord;
+    var tonicSpelling = isMinor ? answerKey.relMinor : answerKey.name;
+    var keyLabel = prettyAcc(tonicSpelling) + ' ' + qualityWord;
 
     if (variant === 'selectNotes'){
       var preferFlatSel = answerKey.type === 'flat';
       var correctPcs = steps.map(function(s){ return mod12(tonicPc + s); });
+      // Label each of the 12 grid buttons: the 7 in-key notes get their
+      // correctly-spelled letter name (one of each letter, no reuse), while
+      // the 5 out-of-key notes fall back to the plain chromatic name since
+      // there's no single "correct" letter for a note that isn't in the scale.
+      var correctSpelled = spellScaleNotes(tonicSpelling, steps);
+      var noteLabels = [];
+      for (var lp = 0; lp < 12; lp++) noteLabels.push(noteName(lp, preferFlatSel));
+      correctPcs.forEach(function(pc, i){ noteLabels[pc] = correctSpelled[i]; });
       document.getElementById('quizLead').textContent = 'Select all the notes';
       document.getElementById('quizHeadline').textContent = 'Which notes are in the key of ' + keyLabel + '?';
       return {
         type: 'selectNotes',
         correctPcs: correctPcs,
-        preferFlat: preferFlatSel,
+        noteLabels: noteLabels,
         prompt: keyLabel + ' scale notes'
+      };
+    }
+
+    if (variant === 'relative'){
+      document.getElementById('quizLead').textContent = isMinor ? 'Relative major' : 'Relative minor';
+      document.getElementById('quizHeadline').textContent = 'What is the relative ' + (isMinor ? 'major' : 'minor') + ' of ' + keyLabel + '?';
+      var distractorKeys = shuffle(KEY_DATA.filter(function(k){return k!==answerKey;})).slice(0,3);
+      var relChoices = shuffle([answerKey].concat(distractorKeys));
+      return {
+        prompt: keyLabel,
+        choices: relChoices.map(function(k){
+          var label = isMinor ? prettyAcc(k.name) + ' major' : prettyAcc(k.relMinor) + ' minor';
+          return {label: label, correct: k === answerKey};
+        })
       };
     }
 
@@ -2321,7 +2349,7 @@
       return {
         prompt: sigText,
         choices: choices.map(function(k){
-          var label = isMinor ? k.relMinor.replace('#','♯') + ' minor' : k.name.replace('#','♯') + ' major';
+          var label = isMinor ? prettyAcc(k.relMinor) + ' minor' : prettyAcc(k.name) + ' major';
           return {label: label, correct: k === answerKey};
         })
       };
@@ -2629,7 +2657,7 @@
         (function(pcVal){
           var b = document.createElement('button');
           b.type = 'button'; b.className = 'pitch-btn';
-          b.textContent = noteName(pcVal, q.preferFlat).replace('#','♯').replace('b','♭');
+          b.textContent = prettyAcc(q.noteLabels ? q.noteLabels[pcVal] : noteName(pcVal, q.preferFlat));
           b.addEventListener('click', function(){ b.classList.toggle('active'); });
           noteGridEl.appendChild(b);
         })(pcN);
